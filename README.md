@@ -31,6 +31,12 @@ access. It's intended for cleaning up your own account, at a human-like pace —
 not for scraping other people's data or running unattended at scale. Use it at
 your own risk; this project isn't affiliated with or endorsed by Strava.
 
+## Setting this up via an AI coding agent
+
+If you'd rather have an agent (Claude Code, Cursor, etc.) install and run this
+for you instead of doing it by hand, see [AGENT_GUIDE.md](AGENT_GUIDE.md) — it
+has a ready-to-paste prompt.
+
 ## Requirements
 
 - Python 3.9+
