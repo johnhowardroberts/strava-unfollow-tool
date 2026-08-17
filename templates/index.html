@@ -1,0 +1,202 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Strava Unfollow Helper</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 720px; margin: 40px auto; padding: 0 16px; color: #222; }
+  h1 { font-size: 20px; }
+  .muted { color: #777; font-size: 13px; }
+  .toolbar { display: flex; gap: 8px; align-items: center; margin: 16px 0; flex-wrap: wrap; }
+  input[type=text] { padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; flex: 1; min-width: 160px; }
+  button { padding: 6px 12px; border: 1px solid #ccc; border-radius: 4px; background: #f5f5f5; cursor: pointer; font-size: 13px; }
+  button:hover { background: #eee; }
+  button.primary { background: #fc4c02; color: white; border-color: #fc4c02; }
+  button.primary:hover { background: #e04402; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  ul#list { list-style: none; padding: 0; margin: 0; border-top: 1px solid #eee; }
+  li.row { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid #eee; }
+  li.row img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; background: #ddd; }
+  li.row .info { flex: 1; }
+  li.row .name { font-size: 14px; }
+  li.row .loc { font-size: 12px; color: #888; }
+  #status, #progress { margin: 16px 0; font-size: 14px; }
+  #log { max-height: 200px; overflow-y: auto; font-size: 12px; font-family: monospace; background: #fafafa; border: 1px solid #eee; padding: 8px; margin-top: 8px; display: none; }
+  .count-pill { font-size: 12px; background: #eee; border-radius: 10px; padding: 2px 8px; }
+</style>
+</head>
+<body>
+  <h1>Strava Unfollow Helper</h1>
+  <p class="muted">Reads your following list from strava.com using your logged-in Chrome session. Check the people you want to unfollow, then hit the button. Runs slowly on purpose (a few seconds between each) to look like normal browsing.</p>
+
+  <div id="status">Click "Scan" to load who you're following.</div>
+  <button id="scanBtn" class="primary">Scan my following list</button>
+
+  <div id="listArea" style="display:none;">
+    <div class="toolbar">
+      <input type="text" id="filterBox" placeholder="Filter by name or location...">
+      <span class="count-pill" id="countPill">0 selected</span>
+    </div>
+    <div class="toolbar">
+      <button id="selectAllBtn">Select all (visible)</button>
+      <button id="selectNoneBtn">Select none</button>
+      <button id="invertBtn">Invert</button>
+    </div>
+    <ul id="list"></ul>
+    <div class="toolbar">
+      <button id="unfollowBtn" class="primary" disabled>Unfollow selected</button>
+    </div>
+  </div>
+
+  <div id="progress" style="display:none;"></div>
+  <div id="log"></div>
+
+<script>
+let athletes = [];
+let selected = new Set();
+
+const statusEl = document.getElementById('status');
+const scanBtn = document.getElementById('scanBtn');
+const listArea = document.getElementById('listArea');
+const listEl = document.getElementById('list');
+const filterBox = document.getElementById('filterBox');
+const countPill = document.getElementById('countPill');
+const unfollowBtn = document.getElementById('unfollowBtn');
+const progressEl = document.getElementById('progress');
+const logEl = document.getElementById('log');
+
+scanBtn.addEventListener('click', async () => {
+  scanBtn.disabled = true;
+  statusEl.textContent = 'Scanning...';
+  await fetch('/api/scan', { method: 'POST' });
+  poll();
+});
+
+async function poll() {
+  const res = await fetch('/api/scan/status');
+  const data = await res.json();
+  if (data.status === 'scanning') {
+    statusEl.textContent = `Scanning... found ${data.count} so far`;
+    setTimeout(poll, 800);
+  } else if (data.status === 'error') {
+    statusEl.textContent = 'Error: ' + data.error;
+    scanBtn.disabled = false;
+  } else if (data.status === 'done') {
+    athletes = data.athletes;
+    statusEl.textContent = `Loaded ${athletes.length} people you follow.`;
+    renderList();
+    listArea.style.display = 'block';
+    scanBtn.disabled = false;
+  }
+}
+
+function renderList() {
+  const filter = filterBox.value.toLowerCase();
+  listEl.innerHTML = '';
+  for (const a of athletes) {
+    if (filter && !(a.name.toLowerCase().includes(filter) || (a.location || '').toLowerCase().includes(filter))) continue;
+    const li = document.createElement('li');
+    li.className = 'row';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = selected.has(a.follow_id);
+    cb.addEventListener('change', () => {
+      if (cb.checked) selected.add(a.follow_id); else selected.delete(a.follow_id);
+      updateCount();
+    });
+    const img = document.createElement('img');
+    img.src = a.avatar || '';
+    img.onerror = () => { img.style.visibility = 'hidden'; };
+    const info = document.createElement('div');
+    info.className = 'info';
+    info.innerHTML = `<div class="name">${a.name}</div><div class="loc">${a.location || ''}</div>`;
+    li.append(cb, img, info);
+    listEl.appendChild(li);
+  }
+  updateCount();
+}
+
+filterBox.addEventListener('input', renderList);
+
+document.getElementById('selectAllBtn').addEventListener('click', () => {
+  const filter = filterBox.value.toLowerCase();
+  for (const a of athletes) {
+    if (filter && !(a.name.toLowerCase().includes(filter) || (a.location || '').toLowerCase().includes(filter))) continue;
+    selected.add(a.follow_id);
+  }
+  renderList();
+});
+
+document.getElementById('selectNoneBtn').addEventListener('click', () => {
+  selected.clear();
+  renderList();
+});
+
+document.getElementById('invertBtn').addEventListener('click', () => {
+  const filter = filterBox.value.toLowerCase();
+  for (const a of athletes) {
+    if (filter && !(a.name.toLowerCase().includes(filter) || (a.location || '').toLowerCase().includes(filter))) continue;
+    if (selected.has(a.follow_id)) selected.delete(a.follow_id); else selected.add(a.follow_id);
+  }
+  renderList();
+});
+
+function updateCount() {
+  countPill.textContent = `${selected.size} selected`;
+  unfollowBtn.disabled = selected.size === 0;
+}
+
+unfollowBtn.addEventListener('click', async () => {
+  const ids = Array.from(selected);
+  const names = athletes.filter(a => selected.has(a.follow_id)).map(a => a.name);
+  const ok = confirm(`Unfollow ${ids.length} people?\n\n${names.slice(0, 15).join(', ')}${names.length > 15 ? ', ...' : ''}\n\nThis happens for real on your Strava account. Continue?`);
+  if (!ok) return;
+  unfollowBtn.disabled = true;
+  progressEl.style.display = 'block';
+  logEl.style.display = 'block';
+  logEl.innerHTML = '';
+  const namesById = {};
+  for (const a of athletes) if (selected.has(a.follow_id)) namesById[a.follow_id] = a.name;
+  const res = await fetch('/api/unfollow', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ follow_ids: ids, names: namesById }),
+  });
+  const { job_id } = await res.json();
+  pollUnfollow(job_id, new Set());
+});
+
+async function pollUnfollow(jobId, seen) {
+  let res, data;
+  try {
+    res = await fetch(`/api/unfollow/status?job_id=${jobId}`);
+    data = await res.json();
+  } catch (e) {
+    progressEl.textContent = 'Lost connection to server, retrying...';
+    setTimeout(() => pollUnfollow(jobId, seen), 2000);
+    return;
+  }
+  progressEl.textContent = `Unfollowing: ${data.done} / ${data.total}`;
+  for (const r of data.results) {
+    if (seen.has(r.follow_id)) continue;
+    seen.add(r.follow_id);
+    const line = document.createElement('div');
+    line.textContent = r.ok ? `✓ Unfollowed ${r.name}` : `✗ Failed: ${r.name} — ${r.error}`;
+    logEl.appendChild(line);
+    logEl.scrollTop = logEl.scrollHeight;
+    if (r.ok) {
+      athletes = athletes.filter(a => a.follow_id !== r.follow_id);
+      selected.delete(r.follow_id);
+    }
+  }
+  if (data.finished) {
+    progressEl.textContent += ' — done.';
+    renderList();
+    unfollowBtn.disabled = selected.size === 0;
+  } else {
+    setTimeout(() => pollUnfollow(jobId, seen), 800);
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+flask
+requests
+browser_cookie3
+beautifulsoup4
